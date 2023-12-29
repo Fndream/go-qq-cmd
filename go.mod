@@ -1,4 +1,4 @@
-module go-qq-cmd
+module github.com/Fndream/go-qq-cmd
 
 go 1.21
 
