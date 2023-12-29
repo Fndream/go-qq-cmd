@@ -49,7 +49,7 @@ var privateHandles = make(map[string][]interface{})
 
 var api *openapi.OpenAPI
 
-func setApi(i *openapi.OpenAPI) {
+func SetApi(i *openapi.OpenAPI) {
 	api = i
 }
 
