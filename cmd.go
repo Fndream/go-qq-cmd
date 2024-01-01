@@ -8,8 +8,6 @@ import (
 	"github.com/tencent-connect/botgo/openapi"
 	"reflect"
 	"strings"
-	"sync"
-	"unicode/utf8"
 )
 
 const spaceCharSet = " \u00A0"
@@ -21,22 +19,22 @@ type Result struct {
 
 type Context struct {
 	context.Context
-	Api     *openapi.OpenAPI     // api
-	Data    *dto.WSATMessageData // 事件数据
-	Msg     string               // 消息内容
-	Cmd     *Config              // 指令信息
-	CmdName string               // 指令名
-	Args    []string             // 参数
+	Api     *openapi.OpenAPI // api
+	Data    *dto.Message     // 事件数据
+	Msg     string           // 消息内容
+	Cmd     *Config          // 指令信息
+	CmdName string           // 指令名
+	Args    []string         // 参数
 }
 
 type Config struct {
-	Private     bool   // 是否内部指令
-	ID          string // ID
-	Name        string
-	Alias       []string
-	Usage       string
-	Emoji       string
-	Description string
+	Private     bool     // 是否内部指令
+	ID          string   // ID
+	Name        string   // 名称
+	Alias       []string // 别名
+	Usage       string   // 用法
+	Emoji       string   // emoji图标
+	Description string   // 描述
 }
 
 var idConfig = make(map[string]*Config)
@@ -73,21 +71,37 @@ func Register(config *Config, handles ...interface{}) {
 	}
 }
 
-func Process(data *dto.WSATMessageData) error {
+func Process(data *dto.Message) {
 	msg := strings.Trim(data.Content, spaceCharSet)
 	if msg == "" {
-		return nil
+		return
 	}
 
 	msgArgs := parseMessageArgs(msg)
-	cmdName := msgArgs[1][1:]
-	cmdArgs := msgArgs[2:]
-	config, ok := nameConfig[cmdName]
-	if !ok {
-		return nil
+	var cmdName string
+	var cmdArgs []string
+	if msgArgs[0][0] != '<' {
+		if msgArgs[0][0] == '/' {
+			cmdName = msgArgs[0][1:]
+		} else {
+			cmdName = msgArgs[0]
+		}
+		cmdArgs = msgArgs[1:]
+	} else {
+		if msgArgs[1][0] == '/' {
+			cmdName = msgArgs[1][1:]
+		} else {
+			cmdName = msgArgs[1]
+		}
+		cmdArgs = msgArgs[2:]
 	}
 
-	ctx := &Context{
+	config, ok := nameConfig[cmdName]
+	if !ok {
+		return
+	}
+
+	Run(&Context{
 		Context: context.Background(),
 		Api:     api,
 		Data:    data,
@@ -95,36 +109,8 @@ func Process(data *dto.WSATMessageData) error {
 		Cmd:     config,
 		CmdName: cmdName,
 		Args:    cmdArgs,
-	}
-
-	result, err := Run(ctx, false)
-	if err != nil {
-		var msg string
-		r, size := utf8.DecodeRuneInString(err.Error())
-		if size > 0 && ((r >= 0x1F300 && r <= 0x1F6FF) || (r >= 0x2600 && r <= 0x26FF)) {
-			msg = err.Error()
-		} else {
-			msg = "❌ " + err.Error()
-		}
-		SendReply(ctx, &dto.MessageToCreate{
-			Content: msg,
-		})
-		return err
-	}
-
-	if result != nil {
-		if result.NotAt {
-			SendReplyNotAt(ctx, &dto.MessageToCreate{
-				Content: result.Msg,
-			})
-		} else {
-			SendReply(ctx, &dto.MessageToCreate{
-				Content: result.Msg,
-			})
-		}
-	}
-
-	return nil
+	})
+	return
 }
 
 func GetPrivateConfig(id string) (*Config, bool) {
@@ -132,56 +118,64 @@ func GetPrivateConfig(id string) (*Config, bool) {
 	return config, ok
 }
 
-func Run(ctx *Context, private bool) (result *Result, err error) {
-	var mutex *sync.Mutex
+func Run(ctx *Context) {
 	defer func() {
-		if mutex != nil {
-			unLock(mutex)
-		}
 		if er := recover(); er != nil {
-			err = er.(error)
+			if s, ok := er.(string); ok {
+				errorHandle(ctx, errors.New(s))
+			} else if e, ok := er.(error); ok {
+				errorHandle(ctx, e)
+			}
 		}
 	}()
 
+	handle, params, err := findHandle(ctx)
+	if err != nil {
+		errorHandle(ctx, err)
+		return
+	}
+
+	SendRunning(&RunningCommand{
+		Ctx:    ctx,
+		Handle: handle,
+		Params: params,
+	})
+	return
+}
+
+func findHandle(ctx *Context) (handle interface{}, params []reflect.Value, err error) {
 	var handles []interface{}
-	if private {
+	if ctx.Cmd.Private {
 		h, ok := privateHandles[ctx.Cmd.ID]
 		if !ok {
-			return nil, errors.New(fmt.Sprintf("Cannot find %v command handle", ctx.Cmd.ID))
+			err = errors.New(fmt.Sprintf("Cannot find %v command handle", ctx.Cmd.ID))
+			return
 		}
 		handles = h
 	} else {
 		h, ok := idHandles[ctx.Cmd.ID]
 		if !ok {
-			return nil, errors.New(fmt.Sprintf("Cannot find %v command handle", ctx.Cmd.ID))
+			err = errors.New(fmt.Sprintf("Cannot find %v command handle", ctx.Cmd.ID))
+			return
 		}
 		handles = h
 	}
 
-	// 遍历处理函数
 handle:
 	for _, handle := range handles {
-		// 得到处理器的类型
 		handleType := reflect.TypeOf(handle)
 
-		// 创建一个容量与处理器参数数量相等的切片，用来传递参数
 		invokeParams := make([]reflect.Value, 0, handleType.NumIn())
 		invokeParams = append(invokeParams, reflect.ValueOf(ctx))
 
-		// 遍历参数
 		for j := 1; j < handleType.NumIn(); j++ {
-			// 得到参数类型
 			paramType := handleType.In(j)
-
-			// 判断参数是否需要留空 (参数不足或为留空占位符)
 			if j-1 >= len(ctx.Args) || ctx.Args[j-1] == "_" {
-				// 如果参数类型是指针，代表留空，传入nil，否则放弃该函数
 				if paramType.Kind() != reflect.Pointer {
 					continue handle
 				}
 				invokeParams = append(invokeParams, reflect.New(paramType))
 			} else {
-				// 转换参数类型并加入参数
 				val, er := convArg(ctx.Args[j-1], paramType)
 				if er != nil {
 					continue handle
@@ -189,23 +183,12 @@ handle:
 				invokeParams = append(invokeParams, reflect.ValueOf(val))
 			}
 		}
-
-		mutex = lock(ctx.Data.Author.ID)
-		r := reflect.ValueOf(handle).Call(invokeParams)
-		unLock(mutex)
-		mutex = nil
-
-		result = r[0].Interface().(*Result)
-		e := r[1].Interface()
-		if e != nil {
-			err = e.(error)
-		}
-		return
+		return handle, invokeParams, nil
 	}
 	msg := "⚠ 参数格式错误"
 	if ctx.Cmd.Usage != "" {
 		msg += "\n❓ 用法：" + ctx.Cmd.Usage
 	}
-	result = &Result{Msg: msg}
+	err = errors.New(msg)
 	return
 }
