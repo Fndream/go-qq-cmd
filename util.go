@@ -8,34 +8,26 @@ import (
 	"time"
 )
 
-func SendReply(ctx *Context, msg *dto.MessageToCreate) {
+func SendReply(ctx *Context, msg *MsgView) {
 	if ctx.Data.DirectMessage {
 		if _, err := (*ctx.Api).PostDirectMessage(ctx, &dto.DirectMessage{
 			GuildID:    ctx.Data.GuildID,
 			ChannelID:  ctx.Data.ChannelID,
 			CreateTime: strconv.FormatInt(time.Now().Unix(), 10),
-		}, msg); err != nil {
+		}, &dto.MessageToCreate{
+			Content: msg.Msg,
+			MsgID:   ctx.Data.ID,
+		}); err != nil {
 			log.Error(err)
 		}
 	} else {
-		msg.Content = message.MentionUser(ctx.Data.Author.ID) + "\n" + msg.Content
-		if _, err := (*ctx.Api).PostMessage(ctx, ctx.Data.ChannelID, msg); err != nil {
-			log.Error(err)
+		if !msg.NotAt {
+			msg.Msg = message.MentionUser(ctx.Data.Author.ID) + "\n" + msg.Msg
 		}
-	}
-}
-
-func SendReplyNotAt(ctx *Context, msg *dto.MessageToCreate) {
-	if ctx.Data.DirectMessage {
-		if _, err := (*ctx.Api).PostDirectMessage(ctx, &dto.DirectMessage{
-			GuildID:    ctx.Data.GuildID,
-			ChannelID:  ctx.Data.ChannelID,
-			CreateTime: strconv.FormatInt(time.Now().Unix(), 10),
-		}, msg); err != nil {
-			log.Error(err)
-		}
-	} else {
-		if _, err := (*ctx.Api).PostMessage(ctx, ctx.Data.ChannelID, msg); err != nil {
+		if _, err := (*ctx.Api).PostMessage(ctx, ctx.Data.ChannelID, &dto.MessageToCreate{
+			Content: msg.Msg,
+			MsgID:   ctx.Data.ID,
+		}); err != nil {
 			log.Error(err)
 		}
 	}

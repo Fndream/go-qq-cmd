@@ -12,7 +12,7 @@ import (
 
 const spaceCharSet = " \u00A0"
 
-type Result struct {
+type MsgView struct {
 	Msg   string
 	NotAt bool
 }
@@ -22,9 +22,14 @@ type Context struct {
 	Api     *openapi.OpenAPI // api
 	Data    *dto.Message     // 事件数据
 	Msg     string           // 消息内容
-	Cmd     *Config          // 指令信息
+	Cmd     *Command         // 指令
 	CmdName string           // 指令名
 	Args    []string         // 参数
+}
+
+type Command struct {
+	*Config
+	Handles []interface{}
 }
 
 type Config struct {
@@ -37,13 +42,17 @@ type Config struct {
 	Description string   // 描述
 }
 
-var idConfig = make(map[string]*Config)
-var nameConfig = make(map[string]*Config)
-var privateConfig = make(map[string]*Config)
+var idMap = make(map[string]*Command)
+var nameMap = make(map[string]*Command)
+var privateMap = make(map[string]*Command)
 
-var idHandles = make(map[string][]interface{})
-var nameHandles = make(map[string][]interface{})
-var privateHandles = make(map[string][]interface{})
+//var idConfig = make(map[string]*Config)
+//var nameConfig = make(map[string]*Config)
+//var privateConfig = make(map[string]*Config)
+//
+//var idHandles = make(map[string][]interface{})
+//var nameHandles = make(map[string][]interface{})
+//var privateHandles = make(map[string][]interface{})
 
 var api *openapi.OpenAPI
 
@@ -52,22 +61,23 @@ func SetApi(i *openapi.OpenAPI) {
 }
 
 func Register(config *Config, handles ...interface{}) {
+	cmd := Command{
+		Config:  config,
+		Handles: handles,
+	}
+
 	if config.Private {
-		privateConfig[config.ID] = config
-		privateHandles[config.ID] = handles
+		privateMap[config.ID] = &cmd
 		return
 	}
 	if config.ID != "" {
-		idConfig[config.ID] = config
-		idHandles[config.ID] = handles
+		idMap[config.ID] = &cmd
 	}
 	if config.Name != "" {
-		nameConfig[config.Name] = config
-		nameHandles[config.Name] = handles
+		nameMap[config.Name] = &cmd
 	}
 	for _, alias := range config.Alias {
-		nameConfig[alias] = config
-		nameHandles[alias] = handles
+		nameMap[alias] = &cmd
 	}
 }
 
@@ -96,26 +106,45 @@ func Process(data *dto.Message) {
 		cmdArgs = msgArgs[2:]
 	}
 
-	config, ok := nameConfig[cmdName]
-	if !ok {
-		return
-	}
-
-	Run(&Context{
+	ctx := &Context{
 		Context: context.Background(),
 		Api:     api,
 		Data:    data,
 		Msg:     msg,
-		Cmd:     config,
 		CmdName: cmdName,
 		Args:    cmdArgs,
-	})
+	}
+
+	cmd, cmdOk := nameMap[cmdName]
+	dl, dlOk := dialogs.Load(ctx.Data.Author.ID)
+
+	// 如果要执行指令，但是存在dialog，发送dialog消息
+	if cmdOk && dlOk {
+		dl.(Dialog).SendMsgView(ctx)
+		return
+	}
+
+	// 如果未找到相关指令，但是存在dialog，回复dialog
+	if !cmdOk && dlOk {
+		dl.(Dialog).Channel() <- ctx
+		return
+	}
+
+	// 走到这里dialog必定不存在
+	// 指令不存在，dialog也不存在，不是指令也不是dialog，不处理
+	if !cmdOk {
+		return
+	}
+
+	// 执行指令
+	ctx.Cmd = cmd
+	Run(ctx)
 	return
 }
 
-func GetPrivateConfig(id string) (*Config, bool) {
-	config, ok := privateConfig[id]
-	return config, ok
+func GetPrivateCommand(id string) (*Command, bool) {
+	cmd, ok := privateMap[id]
+	return cmd, ok
 }
 
 func Run(ctx *Context) {
@@ -146,19 +175,19 @@ func Run(ctx *Context) {
 func findHandle(ctx *Context) (handle interface{}, params []reflect.Value, err error) {
 	var handles []interface{}
 	if ctx.Cmd.Private {
-		h, ok := privateHandles[ctx.Cmd.ID]
+		cmd, ok := privateMap[ctx.Cmd.ID]
 		if !ok {
-			err = errors.New(fmt.Sprintf("Cannot find %v command handle", ctx.Cmd.ID))
+			err = errors.New(fmt.Sprintf("Cannot find %v command channel", ctx.Cmd.ID))
 			return
 		}
-		handles = h
+		handles = cmd.Handles
 	} else {
-		h, ok := idHandles[ctx.Cmd.ID]
+		cmd, ok := idMap[ctx.Cmd.ID]
 		if !ok {
-			err = errors.New(fmt.Sprintf("Cannot find %v command handle", ctx.Cmd.ID))
+			err = errors.New(fmt.Sprintf("Cannot find %v command channel", ctx.Cmd.ID))
 			return
 		}
-		handles = h
+		handles = cmd.Handles
 	}
 
 handle:
@@ -174,19 +203,36 @@ handle:
 				if paramType.Kind() != reflect.Pointer {
 					continue handle
 				}
-				invokeParams = append(invokeParams, reflect.New(paramType))
+				invokeParams = append(invokeParams, reflect.New(paramType.Elem()))
 			} else {
-				val, er := convArg(ctx.Args[j-1], paramType)
-				if er != nil {
-					continue handle
+				var val interface{}
+				if paramType.Kind() == reflect.Pointer {
+					v, er := convArg(ctx.Args[j-1], paramType.Elem())
+					if er != nil {
+						continue handle
+					}
+					val = v
+				} else {
+					v, er := convArg(ctx.Args[j-1], paramType)
+					if er != nil {
+						continue handle
+					}
+					val = v
 				}
-				invokeParams = append(invokeParams, reflect.ValueOf(val))
+
+				if paramType.Kind() == reflect.Pointer {
+					v := reflect.New(paramType.Elem())
+					v.Elem().Set(reflect.ValueOf(val))
+					invokeParams = append(invokeParams, v)
+				} else {
+					invokeParams = append(invokeParams, reflect.ValueOf(val))
+				}
 			}
 		}
 		return handle, invokeParams, nil
 	}
 	msg := "⚠ 参数格式错误"
-	if ctx.Cmd.Usage != "" {
+	if ctx.Cmd.Config.Usage != "" {
 		msg += "\n❓ 用法：" + ctx.Cmd.Usage
 	}
 	err = errors.New(msg)

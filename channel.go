@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"errors"
-	"github.com/tencent-connect/botgo/dto"
 	"reflect"
 	"sync"
 	"time"
@@ -27,7 +26,11 @@ func SendRunning(running *RunningCommand) {
 				case rc := <-ch.(chan *RunningCommand):
 					callHandle(rc)
 				case <-time.After(5 * time.Minute):
-					userChannels.Delete(uid)
+					ch, ok := userChannels.LoadAndDelete(uid)
+					if ok {
+						close(ch.(chan *RunningCommand))
+					}
+					return
 				}
 			}
 		}()
@@ -36,40 +39,32 @@ func SendRunning(running *RunningCommand) {
 }
 
 func callHandle(rc *RunningCommand) {
-	r := reflect.ValueOf(rc.Handle).Call(rc.Params)
-	resultHandle(rc.Ctx, r[0].Interface().(*Result))
-	err := r[1].Interface()
-
+	defer func() {
+		if er := recover(); er != nil {
+			errorHandle(rc.Ctx, errors.New(er.(string)))
+		}
+	}()
+	var err interface{}
 	retryCount := 0
-	for retryCount < 3 {
+	for retryCount <= 3 {
+		r := reflect.ValueOf(rc.Handle).Call(rc.Params)
+		resultHandle(rc.Ctx, r[0].Interface().(*MsgView))
+		err = r[1].Interface()
 		if err == nil {
 			break
 		}
 		if errors.Is(err.(error), RetryError) {
-			r := reflect.ValueOf(rc.Handle).Call(rc.Params)
-			resultHandle(rc.Ctx, r[0].Interface().(*Result))
-			err = r[1].Interface()
 			retryCount++
-		} else {
-			errorHandle(rc.Ctx, err.(error))
-			break
+			continue
 		}
+		errorHandle(rc.Ctx, err.(error))
+		break
 	}
 }
 
-func resultHandle(ctx *Context, result *Result) {
-	if result != nil {
-		if result.NotAt {
-			SendReplyNotAt(ctx, &dto.MessageToCreate{
-				Content: result.Msg,
-				MsgID:   ctx.Data.ID,
-			})
-		} else {
-			SendReply(ctx, &dto.MessageToCreate{
-				Content: result.Msg,
-				MsgID:   ctx.Data.ID,
-			})
-		}
+func resultHandle(ctx *Context, msgView *MsgView) {
+	if msgView != nil {
+		SendReply(ctx, msgView)
 	}
 }
 
@@ -82,9 +77,8 @@ func errorHandle(ctx *Context, err error) {
 		} else {
 			msg = "❌ " + err.Error()
 		}
-		SendReply(ctx, &dto.MessageToCreate{
-			Content: msg,
-			MsgID:   ctx.Data.ID,
+		SendReply(ctx, &MsgView{
+			Msg: msg,
 		})
 	}
 }
