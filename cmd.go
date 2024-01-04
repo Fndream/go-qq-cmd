@@ -118,20 +118,20 @@ func Process(data *dto.Message) {
 	cmd, cmdOk := nameMap[cmdName]
 	dl, dlOk := dialogs.Load(ctx.Data.Author.ID)
 
-	// 如果要执行指令，但是存在dialog，发送dialog消息
+	// 如果指令存在，但是存在dialog，发送dialog主消息
 	if cmdOk && dlOk {
-		dl.(Dialog).SendMsgView(ctx)
+		(*dl.(*Dialog)).SendMainMsgView(ctx)
 		return
 	}
 
-	// 如果未找到相关指令，但是存在dialog，回复dialog
+	// 如果指令不存在，但是存在dialog，回复dialog
 	if !cmdOk && dlOk {
-		dl.(Dialog).Channel() <- ctx
+		(*dl.(*Dialog)).GetChannel() <- ctx
 		return
 	}
 
 	// 走到这里dialog必定不存在
-	// 指令不存在，dialog也不存在，不是指令也不是dialog，不处理
+	// 如果指令不存在，也不存在dialog，不处理
 	if !cmdOk {
 		return
 	}
@@ -177,14 +177,14 @@ func findHandle(ctx *Context) (handle interface{}, params []reflect.Value, err e
 	if ctx.Cmd.Private {
 		cmd, ok := privateMap[ctx.Cmd.ID]
 		if !ok {
-			err = errors.New(fmt.Sprintf("Cannot find %v command channel", ctx.Cmd.ID))
+			err = errors.New(fmt.Sprintf("Cannot find %v command GetChannel", ctx.Cmd.ID))
 			return
 		}
 		handles = cmd.Handles
 	} else {
 		cmd, ok := idMap[ctx.Cmd.ID]
 		if !ok {
-			err = errors.New(fmt.Sprintf("Cannot find %v command channel", ctx.Cmd.ID))
+			err = errors.New(fmt.Sprintf("Cannot find %v command GetChannel", ctx.Cmd.ID))
 			return
 		}
 		handles = cmd.Handles

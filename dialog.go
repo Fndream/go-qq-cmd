@@ -7,22 +7,49 @@ import (
 var dialogs = sync.Map{}
 
 type Dialog interface {
-	SendMsgView(ctx *Context)
-	Channel() chan *Context
+	GetMainMsgView() *MsgView
+	GetChannel() chan *Context
+	SendMainMsgView(ctx *Context)
+	Handle(ctx *Context) interface{}
 }
 
 type BaseDialog struct {
-	MsgView *MsgView
-	channel chan *Context
+	MainMsgView *MsgView      // 主消息视图
+	Channel     chan *Context // 通道，用于回复Dialog
 }
 
-func (b *BaseDialog) SendMsgView(ctx *Context) {
-	SendReply(ctx, b.MsgView)
+func (b *BaseDialog) GetMainMsgView() *MsgView {
+	return b.MainMsgView
 }
 
-func (b *BaseDialog) Channel() chan *Context {
-	return b.channel
+func (b *BaseDialog) GetChannel() chan *Context {
+	return b.Channel
 }
+
+func (b *BaseDialog) SendMainMsgView(ctx *Context) {
+	SendReply(ctx, b.MainMsgView)
+}
+
+func (b *BaseDialog) Handle(ctx *Context) interface{} {
+	return false
+}
+
+func WaitDialog(dialog *Dialog, ctx *Context) interface{} {
+	dialogs.Store(ctx.Data.Author.ID, dialog)
+	(*dialog).SendMainMsgView(ctx)
+	for {
+		c := (*dialog).GetChannel()
+		x := <-c
+		r := (*dialog).Handle(x)
+		if r, ok := r.(int); !ok || r != -1 {
+			close(c)
+			dialogs.Delete(ctx.Data.Author.ID)
+			return r
+		}
+	}
+}
+
+// 确认取消框
 
 const (
 	YES = iota
@@ -33,32 +60,23 @@ type yesNoDialog struct {
 	BaseDialog
 }
 
-func (d yesNoDialog) handleMsg(ctx *Context) int {
-	switch ctx.CmdName {
+func (d *yesNoDialog) Handle(ctx *Context) interface{} {
+	switch ctx.Msg {
 	case "确定", "Yes", "yes":
-		v, loaded := dialogs.LoadAndDelete(ctx.Data.Author.ID)
-		if loaded {
-			close(v.(*yesNoDialog).channel)
-		}
 		return YES
 	case "取消", "No", "no":
-		v, loaded := dialogs.LoadAndDelete(ctx.Data.Author.ID)
-		if loaded {
-			close(v.(*yesNoDialog).channel)
-		}
 		return NO
 	}
 	return -1
 }
 
-func WaitYesNoDialog(ctx *Context, msg *MsgView) int {
-	dl := yesNoDialog{BaseDialog{msg, make(chan *Context)}}
-	dialogs.Store(ctx.Data.Author.ID, &dl)
-	dl.SendMsgView(ctx)
-	i := -1
-	for i == -1 {
-		c := <-dl.channel
-		i = dl.handleMsg(c)
+func WaitYesNoDialog(ctx *Context, msgView *MsgView) int {
+	var dialog Dialog = &yesNoDialog{
+		BaseDialog: BaseDialog{
+			MainMsgView: msgView,
+			Channel:     make(chan *Context),
+		},
 	}
-	return i
+	result := WaitDialog(&dialog, ctx)
+	return result.(int)
 }

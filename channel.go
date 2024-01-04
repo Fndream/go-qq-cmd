@@ -26,10 +26,8 @@ func SendRunning(running *RunningCommand) {
 				case rc := <-ch.(chan *RunningCommand):
 					callHandle(rc)
 				case <-time.After(5 * time.Minute):
-					ch, ok := userChannels.LoadAndDelete(uid)
-					if ok {
-						close(ch.(chan *RunningCommand))
-					}
+					userChannels.Delete(uid)
+					close(ch.(chan *RunningCommand))
 					return
 				}
 			}
