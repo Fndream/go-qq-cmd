@@ -21,6 +21,7 @@ type Context struct {
 	context.Context
 	Api     *openapi.OpenAPI // api
 	Data    *dto.Message     // 事件数据
+	Direct  bool             // 是否是私聊事件
 	Msg     string           // 消息内容
 	Cmd     *Command         // 指令
 	CmdName string           // 指令名
@@ -33,26 +34,20 @@ type Command struct {
 }
 
 type Config struct {
-	Private     bool     // 是否内部指令
 	ID          string   // ID
 	Name        string   // 名称
 	Alias       []string // 别名
 	Usage       string   // 用法
 	Emoji       string   // emoji图标
 	Description string   // 描述
+	NoGuild     bool     // 是否在频道中不可用
+	NoDirect    bool     // 是否在私信中不可用
+	Private     bool     // 是否内部指令
 }
 
 var idMap = make(map[string]*Command)
 var nameMap = make(map[string]*Command)
 var privateMap = make(map[string]*Command)
-
-//var idConfig = make(map[string]*Config)
-//var nameConfig = make(map[string]*Config)
-//var privateConfig = make(map[string]*Config)
-//
-//var idHandles = make(map[string][]interface{})
-//var nameHandles = make(map[string][]interface{})
-//var privateHandles = make(map[string][]interface{})
 
 var api *openapi.OpenAPI
 
@@ -110,6 +105,7 @@ func Process(data *dto.Message) {
 		Context: context.Background(),
 		Api:     api,
 		Data:    data,
+		Direct:  data.DirectMessage,
 		Msg:     msg,
 		CmdName: cmdName,
 		Args:    cmdArgs,
@@ -133,6 +129,14 @@ func Process(data *dto.Message) {
 	// 走到这里dialog必定不存在
 	// 如果指令不存在，也不存在dialog，不处理
 	if !cmdOk {
+		return
+	}
+
+	if !ctx.Direct && cmd.NoGuild {
+		return
+	}
+
+	if ctx.Direct && cmd.NoDirect {
 		return
 	}
 
@@ -203,7 +207,7 @@ handle:
 				if paramType.Kind() != reflect.Pointer {
 					continue handle
 				}
-				invokeParams = append(invokeParams, reflect.New(paramType.Elem()))
+				invokeParams = append(invokeParams, reflect.New(paramType).Elem())
 			} else {
 				var val interface{}
 				if paramType.Kind() == reflect.Pointer {

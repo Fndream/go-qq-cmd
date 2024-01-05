@@ -39,7 +39,11 @@ func SendRunning(running *RunningCommand) {
 func callHandle(rc *RunningCommand) {
 	defer func() {
 		if er := recover(); er != nil {
-			errorHandle(rc.Ctx, errors.New(er.(string)))
+			if s, ok := er.(string); ok {
+				errorHandle(rc.Ctx, errors.New(s))
+			} else if e, ok := er.(error); ok {
+				errorHandle(rc.Ctx, e)
+			}
 		}
 	}()
 	var err interface{}
