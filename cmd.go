@@ -114,17 +114,19 @@ func Process(data *dto.Message) {
 	cmd, cmdOk := nameMap[cmdName]
 
 	ds, dlOk := userDialogs.Load(ctx.Data.Author.ID)
-	stack := ds.(*DialogStack)
-	dl := stack.Last()
 
 	// 如果指令存在，但是存在dialog，提示用户有未处理的dialog
 	if cmdOk && dlOk {
+		stack := ds.(*DialogStack)
+		dl := stack.Last()
 		(*dl).SendMainMsgView(ctx)
 		return
 	}
 
 	// 如果指令不存在，但是存在dialog，回复dialog
 	if !cmdOk && dlOk {
+		stack := ds.(*DialogStack)
+		dl := stack.Last()
 		(*dl).GetChannel() <- ctx
 		return
 	}
