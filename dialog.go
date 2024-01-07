@@ -35,10 +35,7 @@ func (b *BaseDialog) Handle(ctx *Context) interface{} {
 }
 
 func WaitDialog(dialog *Dialog, ctx *Context) interface{} {
-	stack, ok := userDialogs.Load(ctx.Data.Author.ID)
-	if !ok {
-		userDialogs.Store(ctx.Data.Author.ID, &DialogStack{element: []*Dialog{}})
-	}
+	stack, _ := userDialogs.LoadOrStore(ctx.Data.Author.ID, &DialogStack{element: []*Dialog{}})
 	dialogStack := stack.(*DialogStack)
 	dialogStack.Push(dialog)
 	(*dialog).SendMainMsgView(ctx)
