@@ -4,7 +4,7 @@ import (
 	"sync"
 )
 
-var dialogs = sync.Map{}
+var userDialogs = sync.Map{}
 
 type Dialog interface {
 	GetMainMsgView() *MsgView
@@ -35,48 +35,53 @@ func (b *BaseDialog) Handle(ctx *Context) interface{} {
 }
 
 func WaitDialog(dialog *Dialog, ctx *Context) interface{} {
-	dialogs.Store(ctx.Data.Author.ID, dialog)
+	stack, ok := userDialogs.Load(ctx.Data.Author.ID)
+	if !ok {
+		userDialogs.Store(ctx.Data.Author.ID, &DialogStack{element: []*Dialog{}})
+	}
+	dialogStack := stack.(*DialogStack)
+	dialogStack.Push(dialog)
 	(*dialog).SendMainMsgView(ctx)
 	for {
 		c := (*dialog).GetChannel()
 		x := <-c
 		r := (*dialog).Handle(x)
-		if r, ok := r.(int); !ok || r != -1 {
-			close(c)
-			dialogs.Delete(ctx.Data.Author.ID)
-			return r
+
+		// 如果返回值是-1，此次的回复是无效的，继续循环等待用户重新回复本次对话框
+		if r, ok := r.(int); ok && r == -1 {
+			continue
 		}
+
+		// 对话框正确回复处理，返回结果
+		close(c)
+		ds, _ := userDialogs.Load(ctx.Data.Author.ID)
+		stack := ds.(*DialogStack)
+		stack.Pop()
+		if len(stack.element) <= 0 {
+			userDialogs.Delete(ctx.Data.Author.ID)
+		}
+		return r
 	}
 }
 
-// 确认取消框
-
-const (
-	YES = iota
-	NO
-)
-
-type yesNoDialog struct {
-	BaseDialog
+type DialogStack struct {
+	element []*Dialog
 }
 
-func (d *yesNoDialog) Handle(ctx *Context) interface{} {
-	switch ctx.Msg {
-	case "确定", "Yes", "yes":
-		return YES
-	case "取消", "No", "no":
-		return NO
-	}
-	return -1
+func (s *DialogStack) Push(d *Dialog) {
+	s.element = append(s.element, d)
 }
 
-func WaitYesNoDialog(ctx *Context, msgView *MsgView) int {
-	var dialog Dialog = &yesNoDialog{
-		BaseDialog: BaseDialog{
-			MainMsgView: msgView,
-			Channel:     make(chan *Context),
-		},
+func (s *DialogStack) Last() *Dialog {
+	return s.element[len(s.element)-1]
+}
+
+func (s *DialogStack) Pop() *Dialog {
+	if len(s.element) == 0 {
+		return nil
 	}
-	result := WaitDialog(&dialog, ctx)
-	return result.(int)
+	index := len(s.element) - 1
+	item := s.element[index]
+	s.element = s.element[:index]
+	return item
 }
