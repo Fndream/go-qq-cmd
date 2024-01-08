@@ -43,7 +43,7 @@ func SendRunning(running *RunningCommand) {
 			}
 		}()
 	}
-	uc := ch.(userChannel)
+	uc := ch.(*userChannel)
 	if running.Ctx.Direct {
 		uc.direct <- running
 	} else {
