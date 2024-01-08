@@ -10,7 +10,7 @@ import (
 
 func SendReply(ctx *Context, msg *MsgView) {
 	if ctx.Data.DirectMessage {
-		if _, err := (*ctx.Api).PostDirectMessage(ctx, &dto.DirectMessage{
+		if _, err := ctx.Api.PostDirectMessage(ctx, &dto.DirectMessage{
 			GuildID:    ctx.Data.GuildID,
 			ChannelID:  ctx.Data.ChannelID,
 			CreateTime: strconv.FormatInt(time.Now().Unix(), 10),
@@ -24,7 +24,7 @@ func SendReply(ctx *Context, msg *MsgView) {
 		if !msg.NotAt {
 			msg.Msg = message.MentionUser(ctx.Data.Author.ID) + "\n" + msg.Msg
 		}
-		if _, err := (*ctx.Api).PostMessage(ctx, ctx.Data.ChannelID, &dto.MessageToCreate{
+		if _, err := ctx.Api.PostMessage(ctx, ctx.Data.ChannelID, &dto.MessageToCreate{
 			Content: msg.Msg,
 			MsgID:   ctx.Data.ID,
 		}); err != nil {

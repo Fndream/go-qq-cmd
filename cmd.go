@@ -19,13 +19,13 @@ type MsgView struct {
 
 type Context struct {
 	context.Context
-	Api     *openapi.OpenAPI // api
-	Data    *dto.Message     // 事件数据
-	Direct  bool             // 是否是私聊事件
-	Msg     string           // 消息内容
-	Cmd     *Command         // 指令
-	CmdName string           // 指令名
-	Args    []string         // 参数
+	Api     openapi.OpenAPI // api
+	Data    *dto.Message    // 事件数据
+	Direct  bool            // 是否是私聊事件
+	Msg     string          // 消息内容
+	Cmd     *Command        // 指令
+	CmdName string          // 指令名
+	Args    []string        // 参数
 }
 
 type Command struct {
@@ -40,7 +40,7 @@ type Config struct {
 	Usage       string   // 用法
 	Emoji       string   // emoji图标
 	Description string   // 描述
-	NoGuild     bool     // 是否在频道中不可用
+	NoChannel   bool     // 是否在频道中不可用
 	NoDirect    bool     // 是否在私信中不可用
 	Private     bool     // 是否内部指令
 }
@@ -49,9 +49,9 @@ var idMap = make(map[string]*Command)
 var nameMap = make(map[string]*Command)
 var privateMap = make(map[string]*Command)
 
-var api *openapi.OpenAPI
+var api openapi.OpenAPI
 
-func SetApi(i *openapi.OpenAPI) {
+func SetApi(i openapi.OpenAPI) {
 	api = i
 }
 
@@ -112,36 +112,32 @@ func Process(data *dto.Message) {
 	}
 
 	cmd, cmdOk := nameMap[cmdName]
-
 	ds, dlOk := userDialogs.Load(ctx.Data.Author.ID)
 
-	// 如果指令存在，但是存在dialog，提示用户有未处理的dialog
-	if cmdOk && dlOk {
-		stack := ds.(*DialogStack)
-		dl := stack.Last()
-		(*dl).SendMainMsgView(ctx)
-		return
+	if dlOk {
+		dl := ds.(*DialogStack).Last()
+		if (!ctx.Direct && !dl.IsNoChannel()) || (ctx.Direct && !dl.IsNoDirect()) {
+			if cmdOk {
+				dl.SendMainMsgView(ctx)
+				return
+			}
+			ctx.Cmd = &Command{
+				Config: &Config{
+					NoChannel: dl.IsNoChannel(),
+					NoDirect:  dl.IsNoDirect(),
+				},
+				Handles: nil,
+			}
+			dl.GetChannel() <- ctx
+			return
+		}
 	}
 
-	// 如果指令不存在，但是存在dialog，回复dialog
-	if !cmdOk && dlOk {
-		stack := ds.(*DialogStack)
-		dl := stack.Last()
-		(*dl).GetChannel() <- ctx
-		return
-	}
-
-	// 走到这里dialog必定不存在
-	// 如果指令不存在，也不存在dialog，不处理
 	if !cmdOk {
 		return
 	}
 
-	if !ctx.Direct && cmd.NoGuild {
-		return
-	}
-
-	if ctx.Direct && cmd.NoDirect {
+	if (!ctx.Direct && cmd.NoChannel) || (ctx.Direct && cmd.NoDirect) {
 		return
 	}
 
