@@ -137,12 +137,12 @@ func Process(data *dto.Message) {
 		return
 	}
 
+	ctx.Cmd = cmd
+
 	if (!ctx.Direct && cmd.NoChannel) || (ctx.Direct && cmd.NoDirect) {
 		return
 	}
 
-	// 执行指令
-	ctx.Cmd = cmd
 	Run(ctx)
 	return
 }
