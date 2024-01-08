@@ -16,14 +16,24 @@ type RunningCommand struct {
 
 var userChannels = sync.Map{}
 
+type userChannel struct {
+	channel chan *RunningCommand
+	direct  chan *RunningCommand
+}
+
 func SendRunning(running *RunningCommand) {
 	uid := running.Ctx.Data.Author.ID
-	ch, loaded := userChannels.LoadOrStore(uid, make(chan *RunningCommand, 16))
+	ch, loaded := userChannels.LoadOrStore(uid, &userChannel{
+		channel: make(chan *RunningCommand, 16),
+		direct:  make(chan *RunningCommand, 16),
+	})
 	if !loaded {
 		go func() {
 			for {
 				select {
-				case rc := <-ch.(chan *RunningCommand):
+				case rc := <-ch.(*userChannel).channel:
+					callHandle(rc)
+				case rc := <-ch.(*userChannel).direct:
 					callHandle(rc)
 				case <-time.After(5 * time.Minute):
 					userChannels.Delete(uid)
@@ -33,7 +43,12 @@ func SendRunning(running *RunningCommand) {
 			}
 		}()
 	}
-	ch.(chan *RunningCommand) <- running
+	uc := ch.(userChannel)
+	if running.Ctx.Direct {
+		uc.direct <- running
+	} else {
+		uc.channel <- running
+	}
 }
 
 func callHandle(rc *RunningCommand) {
