@@ -43,6 +43,7 @@ type Config struct {
 	NoChannel   bool     // 是否在频道中不可用
 	NoDirect    bool     // 是否在私信中不可用
 	Private     bool     // 是否内部指令
+	Async       bool     // 是否可异步执行
 }
 
 var idMap = make(map[string]*Command)
@@ -116,6 +117,7 @@ func Process(data *dto.Message) {
 
 	if dlOk {
 		dl := ds.(*DialogStack).Last()
+		// 如果对话框环境和当前消息环境一致
 		if (!ctx.Direct && !dl.IsNoChannel()) || (ctx.Direct && !dl.IsNoDirect()) {
 			if cmdOk {
 				dl.SendMainMsgView(ctx)
@@ -129,6 +131,11 @@ func Process(data *dto.Message) {
 				Handles: nil,
 			}
 			dl.GetChannel() <- ctx
+			return
+		} else {
+			SendReply(ctx, &MsgView{
+				Msg: "💬 还有未处理完成的对话",
+			})
 			return
 		}
 	}
