@@ -34,8 +34,8 @@ func SendRunning(running *RunningCommand) {
 				case rc := <-ch.(*userChannel).channel:
 					callHandle(rc)
 				case <-time.After(5 * time.Minute):
+					close(ch.(*userChannel).channel)
 					userChannels.Delete(uid)
-					close(ch.(chan *RunningCommand))
 					return
 				}
 			}
@@ -43,11 +43,11 @@ func SendRunning(running *RunningCommand) {
 		go func() {
 			for {
 				select {
-				case rc := <-ch.(*userChannel).channel:
+				case rc := <-ch.(*userChannel).direct:
 					callHandle(rc)
 				case <-time.After(5 * time.Minute):
+					close(ch.(*userChannel).direct)
 					userChannels.Delete(uid)
-					close(ch.(chan *RunningCommand))
 					return
 				}
 			}
