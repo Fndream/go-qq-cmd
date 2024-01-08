@@ -134,7 +134,7 @@ func Process(data *dto.Message) {
 			return
 		} else {
 			SendReply(ctx, &MsgView{
-				Msg: "💬 还有未处理完成的对话",
+				Msg: "💬 含有未处理的对话",
 			})
 			return
 		}
