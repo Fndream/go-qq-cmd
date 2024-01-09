@@ -29,8 +29,8 @@ func WaitYesNoDialog(ctx *cmd.Context, msgView *cmd.MsgView) int {
 		BaseDialog: &cmd.BaseDialog{
 			MainMsgView: msgView,
 			Channel:     make(chan *cmd.Context),
-			NoChannel:   ctx.Cmd.NoChannel,
-			NoDirect:    ctx.Cmd.NoDirect,
+			NoChannel:   ctx.Cmd.DisableChannel,
+			NoDirect:    ctx.Cmd.DisableDirect,
 		},
 	}
 	result := cmd.WaitDialog(dialog, ctx)

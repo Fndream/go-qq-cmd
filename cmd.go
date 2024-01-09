@@ -34,16 +34,16 @@ type Command struct {
 }
 
 type Config struct {
-	ID          string   // ID
-	Name        string   // 名称
-	Alias       []string // 别名
-	Usage       string   // 用法
-	Emoji       string   // emoji图标
-	Description string   // 描述
-	NoChannel   bool     // 是否在频道中不可用
-	NoDirect    bool     // 是否在私信中不可用
-	Private     bool     // 是否内部指令
-	Async       bool     // 是否可异步执行
+	ID             string   // ID
+	Name           string   // 名称
+	Alias          []string // 别名
+	Usage          string   // 用法
+	Emoji          string   // emoji图标
+	Description    string   // 描述
+	DisableChannel bool     // 是否在频道中禁用
+	DisableDirect  bool     // 是否在私信中禁用
+	Private        bool     // 是否内部指令
+	Async          bool     // 是否可异步执行
 }
 
 var idMap = make(map[string]*Command)
@@ -125,8 +125,8 @@ func Process(data *dto.Message) {
 			}
 			ctx.Cmd = &Command{
 				Config: &Config{
-					NoChannel: dl.IsNoChannel(),
-					NoDirect:  dl.IsNoDirect(),
+					DisableChannel: dl.IsNoChannel(),
+					DisableDirect:  dl.IsNoDirect(),
 				},
 				Handles: nil,
 			}
@@ -146,7 +146,7 @@ func Process(data *dto.Message) {
 
 	ctx.Cmd = cmd
 
-	if (!ctx.Direct && cmd.NoChannel) || (ctx.Direct && cmd.NoDirect) {
+	if (!ctx.Direct && cmd.DisableChannel) || (ctx.Direct && cmd.DisableDirect) {
 		return
 	}
 
