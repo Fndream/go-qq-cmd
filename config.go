@@ -3,10 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/Fndream/go-qq-cmd/fileutil"
 	"github.com/tencent-connect/botgo/log"
 	"github.com/tencent-connect/botgo/openapi"
 	"os"
-	"qqbot/fileutil"
 	"regexp"
 )
 

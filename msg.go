@@ -1,10 +1,10 @@
 package cmd
 
 import (
+	"github.com/Fndream/go-qq-cmd/cache"
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/dto/message"
 	"github.com/tencent-connect/botgo/log"
-	"qqbot/cmd/cache"
 	"strconv"
 	"time"
 )

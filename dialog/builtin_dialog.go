@@ -1,6 +1,6 @@
 package dialog
 
-import "qqbot/cmd"
+import cmd "github.com/Fndream/go-qq-cmd"
 
 // 确认取消框
 const (
